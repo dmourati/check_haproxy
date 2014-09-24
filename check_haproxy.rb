@@ -6,6 +6,8 @@ require 'csv'
 require 'uri'
 
 options = {}
+options[:pxname]='all'
+matched = 0
 OptionParser.new do |opts|
   opts.banner = "Usage: #{__FILE__} [options]"
 
@@ -32,6 +34,9 @@ OptionParser.new do |opts|
   opts.on "-w", "-w WARNING", Numeric, "Warning host percentage" do |warn|
     options[:warning] = warn
   end
+  opts.on "-p", "-p pxname", String, "Optional proxy name" do |pxname|
+    options[:pxname] = pxname
+  end
 end.parse!
 
 if options[:url].to_s == ''
@@ -48,7 +53,6 @@ response = http.request(request)
 
 if Net::HTTPOK === response
   csv = response.body
-
   if csv[0].chr == '#'
     csv = csv[2..-1]
 
@@ -67,17 +71,22 @@ if Net::HTTPOK === response
 
     CSV.parse(data.join("\n")) do |row|
       row = parse.call(row)
-
-      case row['svname']
-      when 'FRONTEND'
-        targets[row['pxname']] = {:frontend => row, :proxies => []}
-      when 'BACKEND'
-        targets[row['pxname']][:backend] = row
-      else
-        targets[row['pxname']][:proxies] << row
-      end
+      if (options[:pxname] && row['pxname'] === options[:pxname]) || options[:pxname] === "all"
+          matched = "1"
+          case row['svname']
+          when 'FRONTEND'
+            targets[row['pxname']] = {:frontend => row, :proxies => []}
+          when 'BACKEND'
+            targets[row['pxname']][:backend] = row
+          else
+            targets[row['pxname']][:proxies] << row
+          end
+      end 
     end
-
+    if matched != '1' && options[:pxname] != 'all'
+      puts "HAPROXY CRITICAL. Proxy #{options[:pxname]} not found!"
+      exit 2
+    end
     stats = []
     targets.each do |proxy_name, data|
       front, back, proxies = data.values_at :frontend, :backend, :proxies
